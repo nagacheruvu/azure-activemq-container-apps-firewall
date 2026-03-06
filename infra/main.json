@@ -1,0 +1,1605 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.39.26.7824",
+      "templateHash": "1753738899850003251"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for all resources"
+      }
+    },
+    "baseName": {
+      "type": "string",
+      "defaultValue": "activemq-mvp",
+      "metadata": {
+        "description": "Base name prefix for resources"
+      }
+    },
+    "whitelistedIPs": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Whitelisted source IP addresses allowed to connect to ActiveMQ"
+      }
+    },
+    "activeMqImage": {
+      "type": "string",
+      "defaultValue": "rmohr/activemq:latest",
+      "metadata": {
+        "description": "ActiveMQ Docker image"
+      }
+    },
+    "logRetentionDays": {
+      "type": "int",
+      "defaultValue": 30,
+      "metadata": {
+        "description": "Log Analytics workspace retention in days"
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {
+        "project": "activemq-aca-firewall-mvp",
+        "environment": "demo"
+      },
+      "metadata": {
+        "description": "Tags for all resources"
+      }
+    }
+  },
+  "variables": {
+    "uniqueSuffix": "[uniqueString(resourceGroup().id)]",
+    "vnetName": "[format('{0}-vnet', parameters('baseName'))]",
+    "firewallName": "[format('{0}-fw', parameters('baseName'))]",
+    "firewallPipName": "[format('{0}-fw-pip', parameters('baseName'))]",
+    "firewallPolicyName": "[format('{0}-fw-policy', parameters('baseName'))]",
+    "logAnalyticsName": "[format('{0}-law-{1}', parameters('baseName'), variables('uniqueSuffix'))]",
+    "acaEnvName": "[format('{0}-env', parameters('baseName'))]",
+    "activeMqAppName": "activemq",
+    "routeTableName": "[format('{0}-rt', parameters('baseName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "networking",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "vnetName": {
+            "value": "[variables('vnetName')]"
+          },
+          "routeTableName": {
+            "value": "[variables('routeTableName')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "2440484759094919482"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "vnetName": {
+              "type": "string"
+            },
+            "routeTableName": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "object"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/routeTables",
+              "apiVersion": "2023-11-01",
+              "name": "[parameters('routeTableName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "disableBgpRoutePropagation": false,
+                "routes": []
+              }
+            },
+            {
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2023-11-01",
+              "name": "[parameters('vnetName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "10.0.0.0/16"
+                  ]
+                },
+                "subnets": [
+                  {
+                    "name": "AzureFirewallSubnet",
+                    "properties": {
+                      "addressPrefix": "10.0.1.0/24"
+                    }
+                  },
+                  {
+                    "name": "AzureFirewallManagementSubnet",
+                    "properties": {
+                      "addressPrefix": "10.0.2.0/24"
+                    }
+                  },
+                  {
+                    "name": "aca-subnet",
+                    "properties": {
+                      "addressPrefix": "10.0.16.0/20",
+                      "routeTable": {
+                        "id": "[resourceId('Microsoft.Network/routeTables', parameters('routeTableName'))]"
+                      },
+                      "delegations": [
+                        {
+                          "name": "Microsoft.App.environments",
+                          "properties": {
+                            "serviceName": "Microsoft.App/environments"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/routeTables', parameters('routeTableName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "vnetName": {
+              "type": "string",
+              "value": "[parameters('vnetName')]"
+            },
+            "vnetId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+            },
+            "firewallSubnetId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName')), '2023-11-01').subnets[0].id]"
+            },
+            "firewallMgmtSubnetId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName')), '2023-11-01').subnets[1].id]"
+            },
+            "acaSubnetId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName')), '2023-11-01').subnets[2].id]"
+            },
+            "routeTableName": {
+              "type": "string",
+              "value": "[parameters('routeTableName')]"
+            },
+            "routeTableId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/routeTables', parameters('routeTableName'))]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "firewall",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "firewallName": {
+            "value": "[variables('firewallName')]"
+          },
+          "firewallPipName": {
+            "value": "[variables('firewallPipName')]"
+          },
+          "firewallPolicyName": {
+            "value": "[variables('firewallPolicyName')]"
+          },
+          "firewallSubnetId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'networking'), '2025-04-01').outputs.firewallSubnetId.value]"
+          },
+          "firewallMgmtSubnetId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'networking'), '2025-04-01').outputs.firewallMgmtSubnetId.value]"
+          },
+          "whitelistedIPs": {
+            "value": "[parameters('whitelistedIPs')]"
+          },
+          "activeMqInternalIP": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acaEnvironment'), '2025-04-01').outputs.staticIp.value]"
+          },
+          "logAnalyticsWorkspaceId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'logAnalytics'), '2025-04-01').outputs.workspaceId.value]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "11515826348943005464"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "firewallName": {
+              "type": "string"
+            },
+            "firewallPipName": {
+              "type": "string"
+            },
+            "firewallPolicyName": {
+              "type": "string"
+            },
+            "firewallSubnetId": {
+              "type": "string"
+            },
+            "firewallMgmtSubnetId": {
+              "type": "string"
+            },
+            "whitelistedIPs": {
+              "type": "array"
+            },
+            "activeMqInternalIP": {
+              "type": "string"
+            },
+            "logAnalyticsWorkspaceId": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "object"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/publicIPAddresses",
+              "apiVersion": "2023-11-01",
+              "name": "[parameters('firewallPipName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard",
+                "tier": "Regional"
+              },
+              "properties": {
+                "publicIPAllocationMethod": "Static",
+                "publicIPAddressVersion": "IPv4"
+              }
+            },
+            {
+              "type": "Microsoft.Network/publicIPAddresses",
+              "apiVersion": "2023-11-01",
+              "name": "[format('{0}-mgmt', parameters('firewallPipName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard",
+                "tier": "Regional"
+              },
+              "properties": {
+                "publicIPAllocationMethod": "Static",
+                "publicIPAddressVersion": "IPv4"
+              }
+            },
+            {
+              "type": "Microsoft.Network/firewallPolicies",
+              "apiVersion": "2023-11-01",
+              "name": "[parameters('firewallPolicyName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "sku": {
+                  "tier": "Basic"
+                },
+                "threatIntelMode": "Alert"
+              }
+            },
+            {
+              "type": "Microsoft.Network/firewallPolicies/ruleCollectionGroups",
+              "apiVersion": "2023-11-01",
+              "name": "[format('{0}/{1}', parameters('firewallPolicyName'), 'ActiveMQ-Rules')]",
+              "properties": {
+                "priority": 100,
+                "ruleCollections": [
+                  {
+                    "ruleCollectionType": "FirewallPolicyNatRuleCollection",
+                    "name": "ActiveMQ-DNAT-Rules",
+                    "priority": 100,
+                    "action": {
+                      "type": "Dnat"
+                    },
+                    "rules": [
+                      {
+                        "ruleType": "NatRule",
+                        "name": "Allow-ActiveMQ-OpenWire-Whitelisted",
+                        "description": "Forward TCP 61616 (OpenWire) from whitelisted IPs to ActiveMQ",
+                        "sourceAddresses": "[parameters('whitelistedIPs')]",
+                        "destinationAddresses": [
+                          "[reference(resourceId('Microsoft.Network/publicIPAddresses', parameters('firewallPipName')), '2023-11-01').ipAddress]"
+                        ],
+                        "destinationPorts": [
+                          "61616"
+                        ],
+                        "ipProtocols": [
+                          "TCP"
+                        ],
+                        "translatedAddress": "[parameters('activeMqInternalIP')]",
+                        "translatedPort": "61616"
+                      },
+                      {
+                        "ruleType": "NatRule",
+                        "name": "Allow-ActiveMQ-WebConsole-Whitelisted",
+                        "description": "Forward TCP 8161 (Web Console) from whitelisted IPs to ActiveMQ",
+                        "sourceAddresses": "[parameters('whitelistedIPs')]",
+                        "destinationAddresses": [
+                          "[reference(resourceId('Microsoft.Network/publicIPAddresses', parameters('firewallPipName')), '2023-11-01').ipAddress]"
+                        ],
+                        "destinationPorts": [
+                          "8161"
+                        ],
+                        "ipProtocols": [
+                          "TCP"
+                        ],
+                        "translatedAddress": "[parameters('activeMqInternalIP')]",
+                        "translatedPort": "8161"
+                      },
+                      {
+                        "ruleType": "NatRule",
+                        "name": "Allow-ActiveMQ-STOMP-Whitelisted",
+                        "description": "Forward TCP 61613 (STOMP) from whitelisted IPs to ActiveMQ",
+                        "sourceAddresses": "[parameters('whitelistedIPs')]",
+                        "destinationAddresses": [
+                          "[reference(resourceId('Microsoft.Network/publicIPAddresses', parameters('firewallPipName')), '2023-11-01').ipAddress]"
+                        ],
+                        "destinationPorts": [
+                          "61613"
+                        ],
+                        "ipProtocols": [
+                          "TCP"
+                        ],
+                        "translatedAddress": "[parameters('activeMqInternalIP')]",
+                        "translatedPort": "61613"
+                      }
+                    ]
+                  },
+                  {
+                    "ruleCollectionType": "FirewallPolicyFilterRuleCollection",
+                    "name": "ActiveMQ-Network-Rules",
+                    "priority": 200,
+                    "action": {
+                      "type": "Allow"
+                    },
+                    "rules": [
+                      {
+                        "ruleType": "NetworkRule",
+                        "name": "Allow-ACA-DNS",
+                        "description": "Allow DNS resolution from Container Apps",
+                        "sourceAddresses": [
+                          "10.0.16.0/20"
+                        ],
+                        "destinationAddresses": [
+                          "*"
+                        ],
+                        "destinationPorts": [
+                          "53"
+                        ],
+                        "ipProtocols": [
+                          "UDP",
+                          "TCP"
+                        ]
+                      },
+                      {
+                        "ruleType": "NetworkRule",
+                        "name": "Allow-ACA-HTTPS-Outbound",
+                        "description": "Allow HTTPS outbound for container image pulls",
+                        "sourceAddresses": [
+                          "10.0.16.0/20"
+                        ],
+                        "destinationAddresses": [
+                          "*"
+                        ],
+                        "destinationPorts": [
+                          "443"
+                        ],
+                        "ipProtocols": [
+                          "TCP"
+                        ]
+                      },
+                      {
+                        "ruleType": "NetworkRule",
+                        "name": "Allow-DNAT-ActiveMQ-Translated",
+                        "description": "Explicit allow for DNAT translated traffic to ACA (ActiveMQ ports)",
+                        "sourceAddresses": [
+                          "*"
+                        ],
+                        "destinationAddresses": [
+                          "[parameters('activeMqInternalIP')]"
+                        ],
+                        "destinationPorts": [
+                          "61616",
+                          "8161",
+                          "61613"
+                        ],
+                        "ipProtocols": [
+                          "TCP"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "ruleCollectionType": "FirewallPolicyFilterRuleCollection",
+                    "name": "Deny-All-Other",
+                    "priority": 65000,
+                    "action": {
+                      "type": "Deny"
+                    },
+                    "rules": [
+                      {
+                        "ruleType": "NetworkRule",
+                        "name": "Deny-All",
+                        "description": "Deny all other traffic (explicit deny for logging)",
+                        "sourceAddresses": [
+                          "*"
+                        ],
+                        "destinationAddresses": [
+                          "*"
+                        ],
+                        "destinationPorts": [
+                          "*"
+                        ],
+                        "ipProtocols": [
+                          "Any"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/publicIPAddresses', parameters('firewallPipName'))]",
+                "[resourceId('Microsoft.Network/firewallPolicies', parameters('firewallPolicyName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Network/azureFirewalls",
+              "apiVersion": "2023-11-01",
+              "name": "[parameters('firewallName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "sku": {
+                  "name": "AZFW_VNet",
+                  "tier": "Basic"
+                },
+                "firewallPolicy": {
+                  "id": "[resourceId('Microsoft.Network/firewallPolicies', parameters('firewallPolicyName'))]"
+                },
+                "ipConfigurations": [
+                  {
+                    "name": "fw-ipconfig",
+                    "properties": {
+                      "subnet": {
+                        "id": "[parameters('firewallSubnetId')]"
+                      },
+                      "publicIPAddress": {
+                        "id": "[resourceId('Microsoft.Network/publicIPAddresses', parameters('firewallPipName'))]"
+                      }
+                    }
+                  }
+                ],
+                "managementIpConfiguration": {
+                  "name": "fw-mgmt-ipconfig",
+                  "properties": {
+                    "subnet": {
+                      "id": "[parameters('firewallMgmtSubnetId')]"
+                    },
+                    "publicIPAddress": {
+                      "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-mgmt', parameters('firewallPipName')))]"
+                    }
+                  }
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-mgmt', parameters('firewallPipName')))]",
+                "[resourceId('Microsoft.Network/publicIPAddresses', parameters('firewallPipName'))]",
+                "[resourceId('Microsoft.Network/firewallPolicies', parameters('firewallPolicyName'))]",
+                "[resourceId('Microsoft.Network/firewallPolicies/ruleCollectionGroups', parameters('firewallPolicyName'), 'ActiveMQ-Rules')]"
+              ]
+            },
+            {
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[format('Microsoft.Network/azureFirewalls/{0}', parameters('firewallName'))]",
+              "name": "[format('{0}-diag', parameters('firewallName'))]",
+              "properties": {
+                "logs": [
+                  {
+                    "categoryGroup": "allLogs",
+                    "enabled": true
+                  }
+                ],
+                "metrics": [
+                  {
+                    "category": "AllMetrics",
+                    "enabled": true
+                  }
+                ],
+                "workspaceId": "[parameters('logAnalyticsWorkspaceId')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/azureFirewalls', parameters('firewallName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "firewallPublicIp": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', parameters('firewallPipName')), '2023-11-01').ipAddress]"
+            },
+            "firewallPrivateIp": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/azureFirewalls', parameters('firewallName')), '2023-11-01').ipConfigurations[0].properties.privateIPAddress]"
+            },
+            "firewallName": {
+              "type": "string",
+              "value": "[parameters('firewallName')]"
+            },
+            "firewallPolicyName": {
+              "type": "string",
+              "value": "[parameters('firewallPolicyName')]"
+            },
+            "firewallResourceId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/azureFirewalls', parameters('firewallName'))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'acaEnvironment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'logAnalytics')]",
+        "[resourceId('Microsoft.Resources/deployments', 'networking')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "logAnalytics",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "workspaceName": {
+            "value": "[variables('logAnalyticsName')]"
+          },
+          "retentionDays": {
+            "value": "[parameters('logRetentionDays')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "14019355803018805240"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "workspaceName": {
+              "type": "string"
+            },
+            "retentionDays": {
+              "type": "int",
+              "defaultValue": 30
+            },
+            "tags": {
+              "type": "object"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.OperationalInsights/workspaces",
+              "apiVersion": "2023-09-01",
+              "name": "[parameters('workspaceName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "sku": {
+                  "name": "PerGB2018"
+                },
+                "retentionInDays": "[parameters('retentionDays')]"
+              }
+            }
+          ],
+          "outputs": {
+            "workspaceId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName'))]"
+            },
+            "workspaceName": {
+              "type": "string",
+              "value": "[parameters('workspaceName')]"
+            },
+            "sharedKey": {
+              "type": "string",
+              "value": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName')), '2023-09-01').primarySharedKey]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "acaEnvironment",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "envName": {
+            "value": "[variables('acaEnvName')]"
+          },
+          "infrastructureSubnetId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'networking'), '2025-04-01').outputs.acaSubnetId.value]"
+          },
+          "logAnalyticsWorkspaceId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'logAnalytics'), '2025-04-01').outputs.workspaceId.value]"
+          },
+          "logAnalyticsSharedKey": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'logAnalytics'), '2025-04-01').outputs.sharedKey.value]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "4965243257340591300"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "envName": {
+              "type": "string"
+            },
+            "infrastructureSubnetId": {
+              "type": "string"
+            },
+            "logAnalyticsWorkspaceId": {
+              "type": "string"
+            },
+            "logAnalyticsSharedKey": {
+              "type": "securestring"
+            },
+            "tags": {
+              "type": "object"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.App/managedEnvironments",
+              "apiVersion": "2024-03-01",
+              "name": "[parameters('envName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "vnetConfiguration": {
+                  "infrastructureSubnetId": "[parameters('infrastructureSubnetId')]",
+                  "internal": true
+                },
+                "appLogsConfiguration": {
+                  "destination": "log-analytics",
+                  "logAnalyticsConfiguration": {
+                    "customerId": "[reference(parameters('logAnalyticsWorkspaceId'), '2023-09-01').customerId]",
+                    "sharedKey": "[parameters('logAnalyticsSharedKey')]"
+                  }
+                },
+                "workloadProfiles": [
+                  {
+                    "name": "Consumption",
+                    "workloadProfileType": "Consumption"
+                  }
+                ],
+                "zoneRedundant": false
+              }
+            }
+          ],
+          "outputs": {
+            "envId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.App/managedEnvironments', parameters('envName'))]"
+            },
+            "envName": {
+              "type": "string",
+              "value": "[parameters('envName')]"
+            },
+            "defaultDomain": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.App/managedEnvironments', parameters('envName')), '2024-03-01').defaultDomain]"
+            },
+            "staticIp": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.App/managedEnvironments', parameters('envName')), '2024-03-01').staticIp]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'logAnalytics')]",
+        "[resourceId('Microsoft.Resources/deployments', 'networking')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "activeMqApp",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "appName": {
+            "value": "[variables('activeMqAppName')]"
+          },
+          "acaEnvId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acaEnvironment'), '2025-04-01').outputs.envId.value]"
+          },
+          "activeMqImage": {
+            "value": "[parameters('activeMqImage')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "3121857187897822278"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "appName": {
+              "type": "string"
+            },
+            "acaEnvId": {
+              "type": "string"
+            },
+            "activeMqImage": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "object"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.App/containerApps",
+              "apiVersion": "2024-03-01",
+              "name": "[parameters('appName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "managedEnvironmentId": "[parameters('acaEnvId')]",
+                "configuration": {
+                  "ingress": {
+                    "external": true,
+                    "targetPort": 61616,
+                    "transport": "tcp",
+                    "exposedPort": 61616
+                  },
+                  "activeRevisionsMode": "Single"
+                },
+                "template": {
+                  "containers": [
+                    {
+                      "name": "activemq",
+                      "image": "[parameters('activeMqImage')]",
+                      "resources": {
+                        "cpu": "[json('1.0')]",
+                        "memory": "2Gi"
+                      },
+                      "env": [
+                        {
+                          "name": "ACTIVEMQ_OPTS",
+                          "value": "-Xms512m -Xmx1g"
+                        }
+                      ],
+                      "command": [
+                        "/bin/sh",
+                        "-c",
+                        "sed -i '/<transportConnector name=\"openwire\"/d' /opt/activemq/conf/activemq.xml && sed -i 's|<transportConnector name=\"stomp\" uri=\"stomp://0.0.0.0:61613.*\"/>|<transportConnector name=\"stomp\" uri=\"stomp://0.0.0.0:61616?transport.closeAsync=false\"/>|' /opt/activemq/conf/activemq.xml && /opt/activemq/bin/activemq console"
+                      ]
+                    }
+                  ],
+                  "scale": {
+                    "minReplicas": 1,
+                    "maxReplicas": 3,
+                    "rules": [
+                      {
+                        "name": "tcp-connections",
+                        "tcp": {
+                          "metadata": {
+                            "concurrentConnections": "100"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          "outputs": {
+            "activeMqFqdn": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.App/containerApps', parameters('appName')), '2024-03-01').configuration.ingress.fqdn]"
+            },
+            "activeMqAppName": {
+              "type": "string",
+              "value": "[parameters('appName')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'acaEnvironment')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "routeTableUpdate",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "routeTableName": {
+            "value": "[variables('routeTableName')]"
+          },
+          "firewallPrivateIp": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'firewall'), '2025-04-01').outputs.firewallPrivateIp.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "13337309662959883467"
+            }
+          },
+          "parameters": {
+            "routeTableName": {
+              "type": "string"
+            },
+            "firewallPrivateIp": {
+              "type": "string"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/routeTables/routes",
+              "apiVersion": "2023-11-01",
+              "name": "[format('{0}/{1}', parameters('routeTableName'), 'force-firewall-egress')]",
+              "properties": {
+                "addressPrefix": "0.0.0.0/0",
+                "nextHopType": "VirtualAppliance",
+                "nextHopIpAddress": "[parameters('firewallPrivateIp')]"
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'firewall')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "monitorDashboard",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "dashboardName": {
+            "value": "[format('{0}-dashboard', parameters('baseName'))]"
+          },
+          "workbookName": {
+            "value": "ActiveMQ Firewall Traffic Workbook"
+          },
+          "logAnalyticsWorkspaceId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'logAnalytics'), '2025-04-01').outputs.workspaceId.value]"
+          },
+          "firewallResourceId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'firewall'), '2025-04-01').outputs.firewallResourceId.value]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "17875008945440337262"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "dashboardName": {
+              "type": "string"
+            },
+            "workbookName": {
+              "type": "string"
+            },
+            "logAnalyticsWorkspaceId": {
+              "type": "string"
+            },
+            "firewallResourceId": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "object"
+            }
+          },
+          "variables": {
+            "workbookContent": {
+              "version": "Notebook/1.0",
+              "items": [
+                {
+                  "type": 1,
+                  "content": {
+                    "json": "# 🔥 ActiveMQ Firewall Traffic Workbook\nInteractive workbook for troubleshooting denied traffic and monitoring ActiveMQ access patterns through Azure Firewall."
+                  },
+                  "name": "title"
+                },
+                {
+                  "type": 9,
+                  "content": {
+                    "version": "KqlParameterItem/1.0",
+                    "parameters": [
+                      {
+                        "id": "timeRange",
+                        "version": "KqlParameterItem/1.0",
+                        "name": "TimeRange",
+                        "type": 4,
+                        "isRequired": true,
+                        "value": {
+                          "durationMs": 86400000
+                        },
+                        "typeSettings": {
+                          "selectableValues": [
+                            {
+                              "durationMs": 3600000
+                            },
+                            {
+                              "durationMs": 14400000
+                            },
+                            {
+                              "durationMs": 86400000
+                            },
+                            {
+                              "durationMs": 259200000
+                            },
+                            {
+                              "durationMs": 604800000
+                            }
+                          ]
+                        },
+                        "label": "Time Range"
+                      }
+                    ]
+                  },
+                  "name": "parameters"
+                },
+                {
+                  "type": 1,
+                  "content": {
+                    "json": "## ❌ Denied Connections\nConnections blocked by Azure Firewall network rules. Use this to identify misconfigurations, missing whitelist entries, or attack attempts."
+                  },
+                  "name": "denied-header"
+                },
+                {
+                  "type": 3,
+                  "content": {
+                    "version": "KqlItem/1.0",
+                    "query": "AzureDiagnostics\n| where Category == \"AzureFirewallNetworkRule\"\n| where msg_s has \"Deny\"\n| summarize DenyCount=count() by bin(TimeGenerated, 15m)\n| render timechart",
+                    "size": 0,
+                    "title": "Denied Connections Over Time",
+                    "timeContextFromParameter": "TimeRange",
+                    "queryType": 0,
+                    "resourceType": "microsoft.operationalinsights/workspaces",
+                    "visualization": "timechart"
+                  },
+                  "name": "denied-timeline"
+                },
+                {
+                  "type": 3,
+                  "content": {
+                    "version": "KqlItem/1.0",
+                    "query": "AzureDiagnostics\n| where Category == \"AzureFirewallNetworkRule\"\n| where msg_s has \"Deny\"\n| extend SourceIP = extract(@\"from (\\d+\\.\\d+\\.\\d+\\.\\d+)\", 1, msg_s)\n| extend DestPort = extract(@\":(\\d+)\\.\", 1, msg_s)\n| summarize DenyCount=count(), LastSeen=max(TimeGenerated) by SourceIP, DestPort\n| order by DenyCount desc\n| take 50",
+                    "size": 0,
+                    "title": "Top Denied Source IPs & Ports",
+                    "timeContextFromParameter": "TimeRange",
+                    "queryType": 0,
+                    "resourceType": "microsoft.operationalinsights/workspaces",
+                    "visualization": "table",
+                    "gridSettings": {
+                      "formatters": [
+                        {
+                          "columnMatch": "DenyCount",
+                          "formatter": 4,
+                          "formatOptions": {
+                            "palette": "redGreen"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "name": "denied-sources"
+                },
+                {
+                  "type": 1,
+                  "content": {
+                    "json": "## ✅ Allowed DNAT Connections\nSuccessful connections forwarded by DNAT rules to ActiveMQ."
+                  },
+                  "name": "allowed-header"
+                },
+                {
+                  "type": 3,
+                  "content": {
+                    "version": "KqlItem/1.0",
+                    "query": "AzureDiagnostics\n| where Category == \"AzureFirewallNatRule\"\n| summarize AllowCount=count() by bin(TimeGenerated, 15m)\n| render timechart",
+                    "size": 0,
+                    "title": "DNAT Forwarded Connections Over Time",
+                    "timeContextFromParameter": "TimeRange",
+                    "queryType": 0,
+                    "resourceType": "microsoft.operationalinsights/workspaces",
+                    "visualization": "timechart"
+                  },
+                  "name": "dnat-timeline"
+                },
+                {
+                  "type": 3,
+                  "content": {
+                    "version": "KqlItem/1.0",
+                    "query": "AzureDiagnostics\n| where Category == \"AzureFirewallNatRule\"\n| extend SourceIP = extract(@\"from (\\d+\\.\\d+\\.\\d+\\.\\d+)\", 1, msg_s)\n| extend OrigDest = extract(@\"to (\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+)\", 1, msg_s)\n| extend TranslatedDest = extract(@\"translated to (\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+)\", 1, msg_s)\n| summarize HitCount=count(), LastSeen=max(TimeGenerated) by SourceIP, OrigDest, TranslatedDest\n| order by HitCount desc\n| take 50",
+                    "size": 0,
+                    "title": "DNAT Rule Hits - Source → Original → Translated",
+                    "timeContextFromParameter": "TimeRange",
+                    "queryType": 0,
+                    "resourceType": "microsoft.operationalinsights/workspaces",
+                    "visualization": "table",
+                    "gridSettings": {
+                      "formatters": [
+                        {
+                          "columnMatch": "HitCount",
+                          "formatter": 4,
+                          "formatOptions": {
+                            "palette": "greenRed"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "name": "dnat-hits"
+                },
+                {
+                  "type": 1,
+                  "content": {
+                    "json": "## 🔍 Recent Denied Traffic (Raw Logs)\nDetailed denied connection logs for troubleshooting."
+                  },
+                  "name": "raw-header"
+                },
+                {
+                  "type": 3,
+                  "content": {
+                    "version": "KqlItem/1.0",
+                    "query": "AzureDiagnostics\n| where Category == \"AzureFirewallNetworkRule\"\n| where msg_s has \"Deny\"\n| project TimeGenerated, msg_s\n| order by TimeGenerated desc\n| take 100",
+                    "size": 0,
+                    "title": "Recent Denied Connections (Raw)",
+                    "timeContextFromParameter": "TimeRange",
+                    "queryType": 0,
+                    "resourceType": "microsoft.operationalinsights/workspaces",
+                    "visualization": "table"
+                  },
+                  "name": "raw-denied"
+                }
+              ],
+              "fallbackResourceIds": [
+                "[parameters('logAnalyticsWorkspaceId')]"
+              ]
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Portal/dashboards",
+              "apiVersion": "2020-09-01-preview",
+              "name": "[parameters('dashboardName')]",
+              "location": "[parameters('location')]",
+              "tags": "[union(parameters('tags'), createObject('hidden-title', 'ActiveMQ Firewall Traffic Dashboard'))]",
+              "properties": {
+                "lenses": [
+                  {
+                    "order": 0,
+                    "parts": [
+                      {
+                        "position": {
+                          "x": 0,
+                          "y": 0,
+                          "colSpan": 12,
+                          "rowSpan": 1
+                        },
+                        "metadata": {
+                          "type": "Extension/HubsExtension/PartType/MarkdownPart",
+                          "inputs": [],
+                          "settings": {
+                            "content": {
+                              "settings": {
+                                "content": "# 🔥 ActiveMQ Firewall Traffic Dashboard\n**Azure Firewall** → Denied & Allowed traffic to ActiveMQ on Azure Container Apps",
+                                "title": "",
+                                "subtitle": "",
+                                "markdownSource": 1,
+                                "markdownUri": null
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "position": {
+                          "x": 0,
+                          "y": 1,
+                          "colSpan": 4,
+                          "rowSpan": 3
+                        },
+                        "metadata": {
+                          "type": "Extension/HubsExtension/PartType/MonitorChartPart",
+                          "inputs": [
+                            {
+                              "name": "options",
+                              "value": {
+                                "chart": {
+                                  "metrics": [
+                                    {
+                                      "resourceMetadata": {
+                                        "id": "[parameters('firewallResourceId')]"
+                                      },
+                                      "name": "FirewallHealth",
+                                      "aggregationType": 4,
+                                      "namespace": "Microsoft.Network/azureFirewalls",
+                                      "metricVisualization": {
+                                        "displayName": "Firewall Health",
+                                        "resourceDisplayName": "Firewall"
+                                      }
+                                    }
+                                  ],
+                                  "title": "🏥 Firewall Health State",
+                                  "titleKind": 2,
+                                  "visualization": {
+                                    "chartType": 2
+                                  },
+                                  "timespan": {
+                                    "relative": {
+                                      "duration": 86400000
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "position": {
+                          "x": 4,
+                          "y": 1,
+                          "colSpan": 4,
+                          "rowSpan": 3
+                        },
+                        "metadata": {
+                          "type": "Extension/HubsExtension/PartType/MonitorChartPart",
+                          "inputs": [
+                            {
+                              "name": "options",
+                              "value": {
+                                "chart": {
+                                  "metrics": [
+                                    {
+                                      "resourceMetadata": {
+                                        "id": "[parameters('firewallResourceId')]"
+                                      },
+                                      "name": "Throughput",
+                                      "aggregationType": 4,
+                                      "namespace": "Microsoft.Network/azureFirewalls",
+                                      "metricVisualization": {
+                                        "displayName": "Throughput (bps)",
+                                        "resourceDisplayName": "Firewall"
+                                      }
+                                    }
+                                  ],
+                                  "title": "📊 Firewall Throughput",
+                                  "titleKind": 2,
+                                  "visualization": {
+                                    "chartType": 2
+                                  },
+                                  "timespan": {
+                                    "relative": {
+                                      "duration": 86400000
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "position": {
+                          "x": 8,
+                          "y": 1,
+                          "colSpan": 4,
+                          "rowSpan": 3
+                        },
+                        "metadata": {
+                          "type": "Extension/HubsExtension/PartType/MonitorChartPart",
+                          "inputs": [
+                            {
+                              "name": "options",
+                              "value": {
+                                "chart": {
+                                  "metrics": [
+                                    {
+                                      "resourceMetadata": {
+                                        "id": "[parameters('firewallResourceId')]"
+                                      },
+                                      "name": "DataProcessed",
+                                      "aggregationType": 1,
+                                      "namespace": "Microsoft.Network/azureFirewalls",
+                                      "metricVisualization": {
+                                        "displayName": "Data Processed",
+                                        "resourceDisplayName": "Firewall"
+                                      }
+                                    }
+                                  ],
+                                  "title": "💾 Data Processed",
+                                  "titleKind": 2,
+                                  "visualization": {
+                                    "chartType": 2
+                                  },
+                                  "timespan": {
+                                    "relative": {
+                                      "duration": 86400000
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "position": {
+                          "x": 0,
+                          "y": 4,
+                          "colSpan": 6,
+                          "rowSpan": 4
+                        },
+                        "metadata": {
+                          "type": "Extension/Microsoft_OperationsManagementSuite_Workspace/PartType/LogsDashboardPart",
+                          "inputs": [
+                            {
+                              "name": "resourceTypeMode",
+                              "value": "workspace"
+                            },
+                            {
+                              "name": "ComponentId",
+                              "value": "[parameters('logAnalyticsWorkspaceId')]"
+                            },
+                            {
+                              "name": "TimeRange",
+                              "value": "P1D"
+                            },
+                            {
+                              "name": "Query",
+                              "value": "AzureDiagnostics\n| where Category == \"AzureFirewallNetworkRule\"\n| where msg_s has \"Deny\"\n| extend SourceIP = extract(@\"from (\\d+\\.\\d+\\.\\d+\\.\\d+)\", 1, msg_s)\n| extend DestPort = extract(@\":(\\d+)\\.\", 1, msg_s)\n| summarize DenyCount=count() by SourceIP, DestPort\n| order by DenyCount desc\n| take 20"
+                            },
+                            {
+                              "name": "PartTitle",
+                              "value": "❌ Top Denied Connections (24h)"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "position": {
+                          "x": 6,
+                          "y": 4,
+                          "colSpan": 6,
+                          "rowSpan": 4
+                        },
+                        "metadata": {
+                          "type": "Extension/Microsoft_OperationsManagementSuite_Workspace/PartType/LogsDashboardPart",
+                          "inputs": [
+                            {
+                              "name": "resourceTypeMode",
+                              "value": "workspace"
+                            },
+                            {
+                              "name": "ComponentId",
+                              "value": "[parameters('logAnalyticsWorkspaceId')]"
+                            },
+                            {
+                              "name": "TimeRange",
+                              "value": "P1D"
+                            },
+                            {
+                              "name": "Query",
+                              "value": "AzureDiagnostics\n| where Category == \"AzureFirewallNatRule\"\n| extend SourceIP = extract(@\"from (\\d+\\.\\d+\\.\\d+\\.\\d+)\", 1, msg_s)\n| extend DestPort = extract(@\":(\\d+)$\", 1, msg_s)\n| summarize AllowCount=count() by SourceIP, DestPort\n| order by AllowCount desc\n| take 20"
+                            },
+                            {
+                              "name": "PartTitle",
+                              "value": "✅ DNAT Allowed Connections (24h)"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "position": {
+                          "x": 0,
+                          "y": 8,
+                          "colSpan": 6,
+                          "rowSpan": 4
+                        },
+                        "metadata": {
+                          "type": "Extension/Microsoft_OperationsManagementSuite_Workspace/PartType/LogsDashboardPart",
+                          "inputs": [
+                            {
+                              "name": "resourceTypeMode",
+                              "value": "workspace"
+                            },
+                            {
+                              "name": "ComponentId",
+                              "value": "[parameters('logAnalyticsWorkspaceId')]"
+                            },
+                            {
+                              "name": "TimeRange",
+                              "value": "P1D"
+                            },
+                            {
+                              "name": "Query",
+                              "value": "AzureDiagnostics\n| where Category == \"AzureFirewallNetworkRule\"\n| where msg_s has \"Deny\"\n| summarize DenyCount=count() by bin(TimeGenerated, 15m)\n| render timechart with (title=\"Denied Connections Over Time\")"
+                            },
+                            {
+                              "name": "PartTitle",
+                              "value": "📈 Denied Traffic Timeline (15m bins)"
+                            },
+                            {
+                              "name": "Dimensions",
+                              "value": {
+                                "xAxis": {
+                                  "name": "TimeGenerated",
+                                  "type": "datetime"
+                                },
+                                "yAxis": [
+                                  {
+                                    "name": "DenyCount",
+                                    "type": "long"
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "name": "VisualizationType",
+                              "value": "linechart"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "position": {
+                          "x": 6,
+                          "y": 8,
+                          "colSpan": 6,
+                          "rowSpan": 4
+                        },
+                        "metadata": {
+                          "type": "Extension/Microsoft_OperationsManagementSuite_Workspace/PartType/LogsDashboardPart",
+                          "inputs": [
+                            {
+                              "name": "resourceTypeMode",
+                              "value": "workspace"
+                            },
+                            {
+                              "name": "ComponentId",
+                              "value": "[parameters('logAnalyticsWorkspaceId')]"
+                            },
+                            {
+                              "name": "TimeRange",
+                              "value": "P1D"
+                            },
+                            {
+                              "name": "Query",
+                              "value": "AzureDiagnostics\n| where Category in (\"AzureFirewallNetworkRule\", \"AzureFirewallNatRule\")\n| extend Action = iif(msg_s has \"Deny\", \"Deny\", \"Allow\")\n| extend DestPort = extract(@\":(\\d+)[\\s\\.]\", 1, msg_s)\n| where isnotempty(DestPort)\n| summarize Count=count() by DestPort, Action\n| order by Count desc\n| take 20"
+                            },
+                            {
+                              "name": "PartTitle",
+                              "value": "🔢 Traffic by Destination Port (24h)"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Insights/workbooks",
+              "apiVersion": "2023-06-01",
+              "name": "[guid(resourceGroup().id, parameters('workbookName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "shared",
+              "properties": {
+                "displayName": "[parameters('workbookName')]",
+                "category": "workbook",
+                "version": "1.0",
+                "serializedData": "[string(variables('workbookContent'))]",
+                "sourceId": "[parameters('logAnalyticsWorkspaceId')]"
+              }
+            }
+          ],
+          "outputs": {
+            "dashboardName": {
+              "type": "string",
+              "value": "[parameters('dashboardName')]"
+            },
+            "dashboardId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Portal/dashboards', parameters('dashboardName'))]"
+            },
+            "workbookName": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Insights/workbooks', guid(resourceGroup().id, parameters('workbookName'))), '2023-06-01').displayName]"
+            },
+            "workbookId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Insights/workbooks', guid(resourceGroup().id, parameters('workbookName')))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'firewall')]",
+        "[resourceId('Microsoft.Resources/deployments', 'logAnalytics')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "firewallPublicIp": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'firewall'), '2025-04-01').outputs.firewallPublicIp.value]"
+    },
+    "firewallPrivateIp": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'firewall'), '2025-04-01').outputs.firewallPrivateIp.value]"
+    },
+    "acaEnvironmentName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acaEnvironment'), '2025-04-01').outputs.envName.value]"
+    },
+    "activeMqFqdn": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'activeMqApp'), '2025-04-01').outputs.activeMqFqdn.value]"
+    },
+    "vnetName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'networking'), '2025-04-01').outputs.vnetName.value]"
+    },
+    "logAnalyticsWorkspaceId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'logAnalytics'), '2025-04-01').outputs.workspaceId.value]"
+    },
+    "dashboardName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitorDashboard'), '2025-04-01').outputs.dashboardName.value]"
+    },
+    "workbookName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitorDashboard'), '2025-04-01').outputs.workbookName.value]"
+    }
+  }
+}
